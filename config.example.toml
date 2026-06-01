@@ -1,0 +1,23 @@
+[server]
+bind = "127.0.0.1:3001"
+router_url = "http://127.0.0.1:3001"
+
+[chain]
+rpc_url = "https://paseo-rpc.dwellir.com"
+registry_contract = "0x0000000000000000000000000000000000000000"
+escrow_contract = "0x0000000000000000000000000000000000000000"
+session_cache_ttl_secs = 12
+# When false, skip on-chain registry checks at node connect (local dev only).
+enabled = true
+
+[node_auth]
+challenge_window_blocks = 10
+ping_interval_secs = 30
+pong_timeout_secs = 10
+
+[metrics]
+bind = "127.0.0.1:9091"
+
+[portal]
+admin_token = "change-me-in-production"
+stale_threshold_secs = 40
