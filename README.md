@@ -12,6 +12,8 @@ High-performance Rust gateway for Sparkl: public OpenAI-compatible HTTPS/SSE for
 | Ops | `GET /health` | None |
 | Portal / admin | `GET /status/nodes`, `GET /status/nodes/{nodeId}`, `GET /metrics` | `Authorization: Bearer <admin_token>` |
 
+`GET /v1/models` returns a **cached union** of model ids from all connected nodes. The cache is refreshed when a node completes WSS registration and periodically on pong heartbeats (`[portal].models_refresh_on_pong_secs`).
+
 `POST /sessions/{id}/activate` is **not** part of the OpenAI API. Clients must activate after opening an on-chain escrow session, then use the returned `apiKey` with standard OpenAI SDKs (`baseURL` = router URL).
 
 ## Quick start
@@ -61,5 +63,5 @@ TLS termination (Caddy) in front of plain HTTP is expected for production; see [
 
 ## Related
 
-- [sparkl-solo](../sparkl-solo) — provider node (tunnel client + HMAC `sk_` auth: next milestone)
+- [sparkl-solo](../sparkl-solo) — provider node (outbound WSS tunnel client + `sk_` activate)
 - [sparkl-portal](../sparkl-portal) — hub UI (router status API integration: follow-up)

@@ -22,6 +22,8 @@ pub struct NodeTunnel {
     pub pending: Arc<DashMap<Uuid, mpsc::Sender<InboundFrame>>>,
     pub connected_at: Instant,
     pub last_pong_at: Arc<AtomicI64>,
+    /// Last time models were re-fetched from this tunnel (pong-driven refresh).
+    pub last_models_refresh_at: Arc<AtomicI64>,
     pub model_count: Arc<AtomicI64>,
     shutdown: mpsc::Sender<()>,
 }
@@ -39,6 +41,7 @@ impl NodeTunnel {
             pending: Arc::new(DashMap::new()),
             connected_at: Instant::now(),
             last_pong_at: Arc::new(AtomicI64::new(now)),
+            last_models_refresh_at: Arc::new(AtomicI64::new(0)),
             model_count: Arc::new(AtomicI64::new(0)),
             shutdown,
         }

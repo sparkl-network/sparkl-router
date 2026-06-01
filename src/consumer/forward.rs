@@ -26,7 +26,6 @@ pub async fn chat_completions(
     let stream = parse_stream_flag(&body_str);
 
     if let Some(model) = parse_model(&body_str) {
-        state.models.refresh_from_tunnels(&state).await;
         if !state.models.contains(&model).await {
             return error_response(
                 StatusCode::BAD_REQUEST,

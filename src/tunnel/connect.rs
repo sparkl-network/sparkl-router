@@ -138,13 +138,19 @@ async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
     info!(?node_id, "node tunnel ready");
     crate::metrics::inc_tunnel_connected();
 
+    crate::consumer::models::spawn_tunnel_models_refresh(
+        state.clone(),
+        node_id,
+        Arc::clone(&tunnel),
+    );
+
     run_tunnel_lifecycle(
         node_id,
         tunnel,
         socket,
         frame_rx,
         shutdown_rx,
-        state.tunnels.clone(),
+        state,
         config,
     )
     .await;

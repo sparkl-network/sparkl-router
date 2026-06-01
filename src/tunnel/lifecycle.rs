@@ -8,8 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::config::Config;
 use crate::protocol::{InboundFrame, NodeToRouterFrame, RouterToNodeFrame};
-use crate::state::{NodeId, NodeTunnel};
-use crate::tunnel::registry::TunnelRegistry;
+use crate::state::{NodeId, NodeTunnel, RouterState};
 
 pub async fn run_tunnel_lifecycle(
     node_id: NodeId,
@@ -17,9 +16,11 @@ pub async fn run_tunnel_lifecycle(
     socket: WebSocket,
     mut frame_rx: tokio::sync::mpsc::Receiver<RouterToNodeFrame>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
-    tunnels: TunnelRegistry,
+    state: RouterState,
     config: Arc<Config>,
 ) {
+    let tunnels = state.tunnels.clone();
+    let models_refresh_secs = config.portal.models_refresh_on_pong_secs;
     let (ws_tx, mut ws_rx) = socket.split();
     let ws_tx = Arc::new(Mutex::new(ws_tx));
 
@@ -69,7 +70,7 @@ pub async fn run_tunnel_lifecycle(
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        handle_inbound_text(&tunnel, &text);
+                        handle_inbound_text(&state, Arc::clone(&tunnel), &text, models_refresh_secs);
                     }
                     Some(Ok(Message::Ping(p))) => {
                         let mut guard = ws_tx.lock().await;
@@ -90,10 +91,16 @@ pub async fn run_tunnel_lifecycle(
     pinger.abort();
     tunnel.fail_all_pending();
     tunnels.remove(&node_id);
+    state.models.remove_node(&node_id).await;
     info!(?node_id, "tunnel disconnected");
 }
 
-fn handle_inbound_text(tunnel: &NodeTunnel, text: &str) {
+fn handle_inbound_text(
+    state: &RouterState,
+    tunnel: Arc<NodeTunnel>,
+    text: &str,
+    models_refresh_secs: u64,
+) {
     let frame = match NodeToRouterFrame::parse(text) {
         Ok(f) => f,
         Err(e) => {
@@ -106,6 +113,12 @@ fn handle_inbound_text(tunnel: &NodeTunnel, text: &str) {
         NodeToRouterFrame::Pong => {
             tunnel.touch_pong();
             debug!(?tunnel.node_id, "pong received");
+            crate::consumer::models::maybe_refresh_on_pong(
+                state.clone(),
+                tunnel.node_id,
+                tunnel,
+                models_refresh_secs,
+            );
         }
         NodeToRouterFrame::Response {
             rid,

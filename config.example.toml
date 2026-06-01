@@ -21,3 +21,5 @@ bind = "127.0.0.1:9091"
 [portal]
 admin_token = "change-me-in-production"
 stale_threshold_secs = 40
+# Re-fetch each node's /v1/models over the tunnel at most this often (on pong heartbeat).
+models_refresh_on_pong_secs = 60

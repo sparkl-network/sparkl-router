@@ -73,10 +73,17 @@ pub struct PortalConfig {
     pub admin_token: String,
     #[serde(default = "default_stale_threshold")]
     pub stale_threshold_secs: u64,
+    /// Minimum seconds between per-node `/v1/models` re-fetches on WSS pong (heartbeat).
+    #[serde(default = "default_models_refresh_on_pong")]
+    pub models_refresh_on_pong_secs: u64,
 }
 
 fn default_stale_threshold() -> u64 {
     40
+}
+
+fn default_models_refresh_on_pong() -> u64 {
+    60
 }
 
 impl Config {
