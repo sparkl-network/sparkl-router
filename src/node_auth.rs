@@ -53,6 +53,11 @@ pub fn parse_node_id_hex(node_id: &str) -> anyhow::Result<[u8; 32]> {
     Ok(out)
 }
 
+/// `0x` + 64 hex chars — use with tracing `%` for readable logs.
+pub fn node_id_hex(node_id: &[u8; 32]) -> String {
+    format!("0x{}", hex::encode(node_id))
+}
+
 /// Software/mock nodes: `node_id = keccak256(ed25519_pubkey)` when no libp2p peer id is sent.
 pub fn node_id_from_ed25519_pubkey(pubkey: &[u8; 32]) -> [u8; 32] {
     keccak256(pubkey).0

@@ -1,6 +1,10 @@
 pub mod activate;
 pub mod bearer;
+pub mod catalog;
 pub mod forward;
+pub mod metering;
 pub mod middleware;
 pub mod models;
+pub mod offerings;
 pub mod sse;
+pub mod usage_batch;

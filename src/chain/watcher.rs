@@ -19,7 +19,13 @@ alloy::sol!(
     concat!(env!("CARGO_MANIFEST_DIR"), "/abi/SettlementEscrow.json")
 );
 
-pub fn spawn_chain_watcher(chain: ChainConfig, verifier: Arc<ChainVerifier>) {
+use crate::consumer::usage_batch::UsageBatcher;
+
+pub fn spawn_chain_watcher(
+    chain: ChainConfig,
+    verifier: Arc<ChainVerifier>,
+    usage_batcher: Option<UsageBatcher>,
+) {
     if !chain.enabled {
         info!("chain watcher disabled (chain.enabled = false)");
         return;
@@ -34,7 +40,10 @@ pub fn spawn_chain_watcher(chain: ChainConfig, verifier: Arc<ChainVerifier>) {
     tokio::spawn(async move {
         let mut last_block: u64 = 0;
         loop {
-            if let Err(e) = poll_once(&chain, &escrow, verifier.clone(), &mut last_block).await {
+            if let Err(e) =
+                poll_once(&chain, &escrow, verifier.clone(), usage_batcher.clone(), &mut last_block)
+                    .await
+            {
                 warn!(%e, "chain watcher poll failed");
             }
             tokio::time::sleep(Duration::from_secs(6)).await;
@@ -46,6 +55,7 @@ async fn poll_once(
     chain: &ChainConfig,
     escrow_addr: &str,
     verifier: Arc<ChainVerifier>,
+    usage_batcher: Option<UsageBatcher>,
     last_block: &mut u64,
 ) -> Result<()> {
     let rpc_url = chain.rpc_url.trim().parse().context("invalid rpc_url")?;
@@ -84,6 +94,10 @@ async fn poll_once(
     for log in released {
         if let Ok(ev) = SettlementEscrow::SessionFundsReleased::decode_log(&log.inner) {
             let session_id: u64 = ev.sessionId.to::<u64>();
+            if let Some(batcher) = &usage_batcher {
+                batcher.force_flush(session_id).await;
+                batcher.remove_session(session_id).await;
+            }
             verifier.evict_session(session_id).await;
         }
     }

@@ -12,6 +12,8 @@ pub enum NodeToRouterFrame {
         signature: String,
         #[serde(default)]
         ed25519_pubkey: Option<String>,
+        #[serde(default)]
+        moniker: Option<String>,
     },
     Pong,
     Response {

@@ -7,9 +7,12 @@ use dashmap::DashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::capacity::CapacityTracker;
 use crate::chain::ChainVerifier;
 use crate::config::Config;
 use crate::consumer::models::ModelsCatalog;
+use crate::telemetry::TelemetryBus;
+use crate::consumer::usage_batch::UsageBatcher;
 use crate::protocol::{InboundFrame, RouterToNodeFrame};
 use crate::tunnel::registry::TunnelRegistry;
 
@@ -18,6 +21,8 @@ pub type NodeId = [u8; 32];
 /// Per-provider WSS tunnel (no WebSocket stored here — only channels).
 pub struct NodeTunnel {
     pub node_id: NodeId,
+    /// Operator-facing label from WSS auth (max 128 chars).
+    pub moniker: Option<String>,
     pub sender: mpsc::Sender<RouterToNodeFrame>,
     pub pending: Arc<DashMap<Uuid, mpsc::Sender<InboundFrame>>>,
     pub connected_at: Instant,
@@ -31,12 +36,14 @@ pub struct NodeTunnel {
 impl NodeTunnel {
     pub fn new(
         node_id: NodeId,
+        moniker: Option<String>,
         sender: mpsc::Sender<RouterToNodeFrame>,
         shutdown: mpsc::Sender<()>,
     ) -> Self {
         let now = chrono::Utc::now().timestamp();
         Self {
             node_id,
+            moniker,
             sender,
             pending: Arc::new(DashMap::new()),
             connected_at: Instant::now(),
@@ -79,6 +86,9 @@ pub struct RouterState {
     pub tunnels: TunnelRegistry,
     pub chain: Arc<ChainVerifier>,
     pub models: Arc<ModelsCatalog>,
+    pub capacity: CapacityTracker,
+    pub telemetry: TelemetryBus,
+    pub usage_batcher: Option<UsageBatcher>,
     pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
 }
 
@@ -88,6 +98,14 @@ pub struct AuthenticatedSession {
     pub session_id: u64,
     pub user: Address,
     pub node_id: FixedBytes<32>,
+    pub locked_internal: u128,
+    pub usage_recorded: u128,
+}
+
+impl AuthenticatedSession {
+    pub fn budget_exhausted(&self) -> bool {
+        self.usage_recorded >= self.locked_internal && self.locked_internal > 0
+    }
 }
 
 impl RouterState {
@@ -95,6 +113,7 @@ impl RouterState {
         config: Config,
         chain: ChainVerifier,
         models: ModelsCatalog,
+        usage_batcher: Option<UsageBatcher>,
         metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
     ) -> Self {
         Self {
@@ -103,6 +122,9 @@ impl RouterState {
             tunnels: TunnelRegistry::new(),
             chain: Arc::new(chain),
             models: Arc::new(models),
+            capacity: CapacityTracker::new(),
+            telemetry: TelemetryBus::new(),
+            usage_batcher,
             metrics_handle,
         }
     }

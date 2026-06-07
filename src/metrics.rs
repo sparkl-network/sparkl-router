@@ -14,6 +14,18 @@ pub fn init_metrics() {
         "sparkl_router_chunk_latency_seconds",
         "Latency from chunk received to forwarded to consumer"
     );
+    describe_counter!(
+        "sparkl_router_record_usage_success_total",
+        "Successful on-chain recordUsage transactions"
+    );
+    describe_counter!(
+        "sparkl_router_record_usage_failures_total",
+        "Failed on-chain recordUsage transactions after retries"
+    );
+    describe_counter!(
+        "sparkl_router_capacity_rejected_total",
+        "Chat completion requests rejected due to model capacity limits"
+    );
 }
 
 pub fn install_prometheus_recorder() -> anyhow::Result<PrometheusHandle> {
@@ -32,4 +44,16 @@ pub fn inc_tunnel_connected() {
 
 pub fn observe_chunk_latency(seconds: f64) {
     histogram!("sparkl_router_chunk_latency_seconds").record(seconds);
+}
+
+pub fn inc_record_usage_success() {
+    counter!("sparkl_router_record_usage_success_total").increment(1);
+}
+
+pub fn inc_record_usage_failures() {
+    counter!("sparkl_router_record_usage_failures_total").increment(1);
+}
+
+pub fn inc_capacity_rejected() {
+    counter!("sparkl_router_capacity_rejected_total").increment(1);
 }

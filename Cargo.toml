@@ -20,12 +20,14 @@ alloy = { version = "2.0.4", default-features = false, features = [
     "reqwest-rustls-tls",
     "rpc-types",
     "sol-types",
+    "signer-local",
 ] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 alloy-primitives = { version = "1.5.7", default-features = false, features = ["std"] }
 async-stream = "0.3"
 axum = { version = "0.8", features = ["json", "ws"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
+base64 = "0.22"
 bs58 = "0.5"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -35,7 +37,9 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 futures = "0.3"
 futures-util = "0.3"
 hex = "0.4"
+hmac = "0.12"
 http = "1"
+sha2 = "0.10"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
 moka = { version = "0.12", features = ["future"] }
@@ -57,6 +61,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }
+tempfile = "3"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = [
     "json",

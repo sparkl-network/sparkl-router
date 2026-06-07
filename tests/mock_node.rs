@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
 use serde_json::json;
 use sparkl_router::node_auth::{connect_challenge_payload, node_id_from_ed25519_pubkey};
-use sparkl_router::protocol::{NodeToRouterFrame, RouterToNodeFrame};
+use sparkl_router::protocol::RouterToNodeFrame;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub struct MockNodeKeys {
@@ -29,9 +29,10 @@ impl MockNodeKeys {
     }
 }
 
-pub async fn connect_mock_node(
+pub async fn connect_mock_node_with_moniker(
     router_ws_url: &str,
     keys: &MockNodeKeys,
+    moniker: Option<&str>,
 ) -> anyhow::Result<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
 > {
@@ -51,12 +52,15 @@ pub async fn connect_mock_node(
     let payload = connect_challenge_payload(&nonce, block);
     let sig = keys.signing_key.sign(&payload);
 
-    let auth = json!({
+    let mut auth = json!({
         "type": "auth",
         "node_id": format!("0x{}", hex::encode(keys.node_id)),
         "signature": hex::encode(sig.to_bytes()),
         "ed25519_pubkey": keys.pubkey_hex,
     });
+    if let Some(m) = moniker.map(str::trim).filter(|s| !s.is_empty()) {
+        auth["moniker"] = json!(m);
+    }
     ws.send(Message::Text(auth.to_string().into())).await?;
 
     let ready_text = recv_json(&mut ws).await?;
@@ -90,35 +94,13 @@ pub async fn respond_pong(
     }
 }
 
-pub async fn serve_echo_sse(
-    ws: &mut tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
-) -> anyhow::Result<()> {
-    while let Some(msg) = ws.next().await {
-        let text = match msg {
-            Ok(Message::Text(t)) => t.to_string(),
-            _ => continue,
-        };
-        let frame: RouterToNodeFrame = serde_json::from_str(&text)?;
-        if let RouterToNodeFrame::Request { rid, .. } = frame {
-            let chunk = NodeToRouterFrame::Chunk {
-                rid,
-                data: "data: {\"choices\":[]}\n\n".into(),
-            };
-            ws.send(Message::Text(serde_json::to_string(&chunk)?.into()))
-                .await?;
-            let end = NodeToRouterFrame::End { rid, status: 200 };
-            ws.send(Message::Text(serde_json::to_string(&end)?.into()))
-                .await?;
-        } else if let RouterToNodeFrame::Ping = frame {
-            ws.send(Message::Text(
-                serde_json::json!({"type":"pong"}).to_string().into(),
-            ))
-            .await?;
-        }
-    }
-    Ok(())
+pub async fn connect_mock_node(
+    router_ws_url: &str,
+    keys: &MockNodeKeys,
+) -> anyhow::Result<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+> {
+    connect_mock_node_with_moniker(router_ws_url, keys, None).await
 }
 
 async fn recv_json(

@@ -5,7 +5,7 @@
 `sparkl-router` is a high-performance Rust service deployed at `api.sparkl.network`. It provides two surfaces:
 
 1. **Consumer surface** — a public HTTPS/SSE endpoint exposing OpenAI-compatible `/v1/*` routes
-2. **Node surface** — a `wss://` endpoint over which inference nodes register and receive forwarded requests
+2. **Node surface** — a `wss://` endpoint over which inference nodes subscribe (WSS) and receive forwarded requests
 
 Nodes connect outbound via WebSocket, requiring no TLS cert, no open inbound port, and no static IP. The router owns the only TLS certificate in the system. All session authorisation is verified against the `SettlementEscrow` smart contract before any request reaches a node.
 
@@ -112,7 +112,7 @@ Router:         1. ecrecover / ed25519 verify: pubkey → node_id matches
 Router → Node:  { "type": "ready", "router_url": "https://api.sparkl.network" }
 ```
 
-The signature covers `keccak256("sparkl-router-connect:" || nonce || block_number)` — matching the pattern established by the `/identity` endpoint in sparkl-solo. The block number bounds replay to a short window (configurable, default 10 blocks ≈ 2 minutes on Paseo).
+The signature covers `keccak256("sparkl-router-connect:" || nonce || block_number)` — matching the pattern established by the `/identity` endpoint in sparkl-solo. MVP does not enforce a block replay window; the router manages trust via signature verification, on-chain commercial registration (`nodeOperator`), and tunnel lifecycle (ping/pong, catalog liveness).
 
 ### Reconnection
 
@@ -262,11 +262,11 @@ All frames are JSON objects sent as WebSocket `Text` messages.
 
 | `type` | Fields | Description |
 |---|---|---|
-| `auth` | `node_id: hex`, `signature: hex` | Auth response to challenge |
+| `auth` | `node_id: hex`, `signature: hex`, `ed25519_pubkey: hex` (required), `moniker: string` (optional, max 128 chars) | Auth response to challenge |
 | `pong` | — | Keepalive response |
-| `response` | `rid: uuid`, `status: u16`, `headers: object` | HTTP response headers (non-streaming) |
-| `chunk` | `rid: uuid`, `data: string` | SSE chunk (verbatim `data: ...\n\n` line) |
-| `end` | `rid: uuid`, `status: u16` | Stream complete |
+| `response` | `rid: uuid`, `status: u16`, `headers: object` | HTTP response status/headers for both streaming and non-streaming forwards |
+| `chunk` | `rid: uuid`, `data: string` | Body segment: SSE line(s) for streaming, raw body bytes (UTF-8 text) for non-streaming |
+| `end` | `rid: uuid`, `status: u16` | Terminal frame for request completion (streaming or non-streaming) |
 | `error` | `rid: uuid`, `code: u16`, `message: string` | Handler error |
 | `activate_response` | `rid: uuid`, `api_key: string` | Session activation result |
 
@@ -278,11 +278,38 @@ All endpoints are OpenAI-compatible. No changes needed to existing client SDKs.
 
 ### `POST /v1/chat/completions`
 
-Standard OpenAI chat completions. With `"stream": true`, responds with `Content-Type: text/event-stream` SSE. The router bridges SSE chunks from the node tunnel transparently.[^9][^10]
+Standard OpenAI chat completions. The node always returns tunnel frames as `response -> chunk* -> end`: when `"stream": true`, `chunk` payloads contain verbatim SSE lines (`data: ...\n\n`); when `"stream": false`, `chunk` payloads contain raw response body segments that the router concatenates into a normal JSON HTTP response.[^9][^10]
 
 ### `GET /v1/models`
 
-Aggregated model list across all connected nodes. The router queries each connected node's model list (cached, refreshed on node connect) and merges results, deduplicating by model ID. Response is OpenAI-compatible `{ "object": "list", "data": [...] }`.
+Aggregated model list across all connected nodes. The router queries each connected node's model list (cached, refreshed on node connect and on throttled WSS `pong` heartbeats) and merges results by model ID.
+
+Each node's `/v1/models` entries may include OpenAI fields plus a `sparkl` object (e.g. `quantization`, `parameter_count`, `source_url`, `concurrency`, `active_sessions`, `context_length` on the parent object). When the same model ID is offered by multiple nodes, the router keeps static fields from the first seen entry and adds:
+
+- `sparkl.providers`: per-node rows with `node_id`, static metadata, `features` (key → freeform value), `active_sessions`, `concurrency`, `available_slots`
+- `sparkl.active_sessions`: sum across providers
+- `sparkl.available_slots`: sum of `max(0, concurrency - active_sessions)` per provider (when concurrency is set)
+- `sparkl.features`: map on each model object when solo config declares features
+
+Response shape: OpenAI-compatible `{ "object": "list", "data": [...] }` with full model objects, not id-only stubs.
+
+### `GET /v1/catalog/features`
+
+Public. Returns the allowed feature **keys** and operator descriptions for solo `[[models]].features` (not live provider values).
+
+```json
+{ "object": "feature_catalog", "data": [{ "key": "mtp", "description": "..." }] }
+```
+
+### `GET /v1/catalog/providers`
+
+Public, filterable **provider-centric** discovery (which nodes offer a model with spare capacity).
+
+Query parameters: `model`, `features_any`, `features_all` (comma-separated keys), `feature_<key>` (substring match on that key’s value), `quantization`, `parameter_count`, `min_context_length`, `min_available_slots`, `online_only` (default `true`).
+
+Response: `{ "object": "provider_list", "data": [{ "node_id", "model_id", "tunnel_status", "features", "available_slots", ... }] }`.
+
+Use `GET /v1/models` for OpenAI-style model browsing; use `/v1/catalog/providers` for routing/discovery queries.
 
 ### `POST /sessions/:sessionId/activate`
 
@@ -340,6 +367,7 @@ Caddy handles Let's Encrypt issuance and renewal automatically. The Axum router 
 ```toml
 [server]
 bind = "127.0.0.1:3001"
+upstream_timeout_secs = 120
 
 [chain]
 rpc_url = "https://paseo-rpc.dwellir.com"
@@ -348,7 +376,8 @@ escrow_contract = "0x..."
 session_cache_ttl_secs = 12
 
 [node_auth]
-challenge_window_blocks = 10
+ping_interval_secs = 30
+pong_timeout_secs = 10
 
 [metrics]
 bind = "127.0.0.1:9091"

@@ -3,3 +3,6 @@
 .DS_Store
 config.toml
 !config.example.toml
+
+# Local runtime keys (e.g. record-usage-key.json)
+data/

@@ -128,9 +128,14 @@ fn recover_eip191_signer(message: &[u8], sig_hex: &str) -> Result<Address, ()> {
     if sig_bytes.len() != 65 {
         return Err(());
     }
+
+    // Wallets (personal_sign / eth_sign) encode recovery id as 27 or 28, not 0 or 1.
+    let v = sig_bytes[64];
+    let rec_byte = if v >= 27 { v - 27 } else { v };
+    let recid = RecoveryId::from_u8_masked(rec_byte);
+
     let prefixed = eip191_hash(message);
     let msg = Message::from_digest(prefixed);
-    let recid = RecoveryId::try_from(i32::from(sig_bytes[64])).map_err(|_| ())?;
     let sig = RecoverableSignature::from_compact(&sig_bytes[..64], recid).map_err(|_| ())?;
     let secp = Secp256k1::verification_only();
     let pubkey = secp.recover_ecdsa(msg, &sig).map_err(|_| ())?;
@@ -140,10 +145,12 @@ fn recover_eip191_signer(message: &[u8], sig_hex: &str) -> Result<Address, ()> {
 
 fn eip191_hash(message: &[u8]) -> [u8; 32] {
     use alloy_primitives::keccak256;
-    let len = message.len();
-    let mut prefixed = format!("\x19Ethereum Signed Message:\n{len}");
-    prefixed.push_str(&String::from_utf8_lossy(message));
-    keccak256(prefixed.as_bytes()).0
+    let len = message.len().to_string();
+    let mut prefixed = Vec::with_capacity(26 + len.len() + message.len());
+    prefixed.extend_from_slice(b"\x19Ethereum Signed Message:\n");
+    prefixed.extend_from_slice(len.as_bytes());
+    prefixed.extend_from_slice(message);
+    keccak256(&prefixed).0
 }
 
 fn activate_error(status: StatusCode, msg: &str) -> (StatusCode, Json<Value>) {
@@ -151,4 +158,31 @@ fn activate_error(status: StatusCode, msg: &str) -> (StatusCode, Json<Value>) {
         status,
         Json(json!({ "error": { "message": msg, "type": "activate_error" } })),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use secp256k1::Secp256k1;
+
+    #[test]
+    fn eip191_recovery_accepts_wallet_v_byte() {
+        let secp = Secp256k1::new();
+        let sk = secp256k1::SecretKey::from_byte_array([0x22u8; 32]).expect("valid key");
+        let message = b"sparkl-activate:3:24";
+        let digest = eip191_hash(message);
+        let msg = Message::from_digest(digest);
+        let sig = secp.sign_ecdsa_recoverable(msg, &sk);
+        let (rec_id, compact) = sig.serialize_compact();
+        let mut wire = compact.to_vec();
+        wire.push(i32::from(rec_id) as u8 + 27);
+
+        let expected_hash =
+            alloy_primitives::keccak256(&sk.public_key(&secp).serialize_uncompressed()[1..]);
+        let expected = Address::from_slice(&expected_hash[12..]);
+
+        let recovered =
+            recover_eip191_signer(message, &hex::encode(wire)).expect("recover with v=27/28");
+        assert_eq!(recovered, expected);
+    }
 }

@@ -44,6 +44,13 @@ pub async fn require_v1_session(
         return auth_json(StatusCode::UNAUTHORIZED, "session not open");
     }
 
+    if state.config.settlement.enforce_session_budget && chain_sess.budget_exhausted() {
+        return auth_json(
+            StatusCode::PAYMENT_REQUIRED,
+            "session prepaid balance exhausted",
+        );
+    }
+
     let node_id_bytes: [u8; 32] = chain_sess.node_id.into();
 
     if state.tunnels.get(&node_id_bytes).is_none() {
@@ -57,6 +64,8 @@ pub async fn require_v1_session(
         session_id: bearer.session_id,
         user: chain_sess.user,
         node_id: chain_sess.node_id,
+        locked_internal: chain_sess.locked_internal,
+        usage_recorded: chain_sess.usage_recorded,
     });
 
     next.run(request).await

@@ -1,8 +1,10 @@
 pub mod admin;
+pub mod capacity;
 pub mod chain;
 pub mod config;
 pub mod consumer;
 pub mod metrics;
+pub mod telemetry;
 pub mod node_auth;
 pub mod protocol;
 pub mod routes;

@@ -12,6 +12,8 @@ use crate::state::RouterState;
 #[serde(rename_all = "snake_case")]
 pub struct NodeStatus {
     pub node_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moniker: Option<String>,
     pub status: &'static str,
     pub connected_at: Option<DateTime<Utc>>,
     pub last_pong_at: Option<DateTime<Utc>>,
@@ -44,6 +46,7 @@ fn tunnel_status(tunnel: &crate::state::NodeTunnel, stale: u64) -> NodeStatus {
     let status = derive_status(last_pong, stale);
     NodeStatus {
         node_id: format!("0x{}", hex::encode(tunnel.node_id)),
+        moniker: tunnel.moniker.clone(),
         status,
         connected_at: Some(
             Utc::now() - chrono::Duration::seconds(tunnel.connected_at.elapsed().as_secs() as i64),
@@ -85,6 +88,7 @@ pub async fn get_node(
 
     Ok(Json(NodeStatus {
         node_id: format!("0x{}", hex::encode(id)),
+        moniker: None,
         status: "offline",
         connected_at: None,
         last_pong_at: None,

@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,6 +8,8 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
+use crate::consumer::offerings::tunnel_status_for_pong;
+use crate::node_auth::node_id_hex;
 use crate::protocol::{InboundFrame, NodeToRouterFrame, RouterToNodeFrame};
 use crate::state::{NodeId, NodeTunnel, RouterState};
 
@@ -50,7 +53,7 @@ pub async fn run_tunnel_lifecycle(
             let last = tunnel_ping.last_pong_timestamp();
             let now = chrono::Utc::now().timestamp();
             if now - last > (ping_interval + pong_timeout).as_secs() as i64 {
-                warn!(?node_id, "pong timeout, closing tunnel");
+                warn!(node_id = %node_id_hex(&node_id), "pong timeout, closing tunnel");
                 tunnel_ping.signal_shutdown();
                 break;
             }
@@ -90,9 +93,17 @@ pub async fn run_tunnel_lifecycle(
     writer.abort();
     pinger.abort();
     tunnel.fail_all_pending();
+    state.capacity.clear_node(&node_id);
     tunnels.remove(&node_id);
     state.models.remove_node(&node_id).await;
-    info!(?node_id, "tunnel disconnected");
+    state.telemetry.emit_node_status(
+        node_id,
+        tunnel.moniker.clone(),
+        "offline",
+        0,
+        0,
+    );
+    info!(node_id = %node_id_hex(&node_id), "tunnel disconnected");
 }
 
 fn handle_inbound_text(
@@ -112,11 +123,20 @@ fn handle_inbound_text(
     match frame {
         NodeToRouterFrame::Pong => {
             tunnel.touch_pong();
-            debug!(?tunnel.node_id, "pong received");
+            debug!(node_id = %node_id_hex(&tunnel.node_id), "pong received");
+            let stale = state.config.portal.stale_threshold_secs;
+            let status = tunnel_status_for_pong(tunnel.last_pong_timestamp(), stale);
+            state.telemetry.emit_node_status(
+                tunnel.node_id,
+                tunnel.moniker.clone(),
+                status,
+                tunnel.in_flight_count(),
+                tunnel.model_count.load(Ordering::Relaxed),
+            );
             crate::consumer::models::maybe_refresh_on_pong(
                 state.clone(),
                 tunnel.node_id,
-                tunnel,
+                Arc::clone(&tunnel),
                 models_refresh_secs,
             );
         }

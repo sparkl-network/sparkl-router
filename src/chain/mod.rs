@@ -1,5 +1,7 @@
+pub mod record_usage_key;
 pub mod registry;
 pub mod session;
+pub mod usage;
 pub mod watcher;
 
 use std::time::Duration;

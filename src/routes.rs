@@ -8,13 +8,16 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::admin::require_admin_token;
-use crate::consumer::{activate, forward};
+use crate::consumer::{activate, catalog, forward};
 use crate::state::RouterState;
-use crate::status::nodes;
+use crate::status::{nodes, subscribe};
 use crate::tunnel::connect::node_connect;
 
 pub fn build_router(state: RouterState) -> Router {
-    let v1_public = Router::new().route("/models", get(forward::list_models));
+    let v1_public = Router::new()
+        .route("/models", get(forward::list_models))
+        .route("/catalog/providers", get(catalog::list_providers))
+        .route("/catalog/features", get(catalog::list_feature_catalog));
 
     let v1_protected = forward::v1_protected_routes(state.clone());
 
@@ -36,6 +39,7 @@ pub fn build_router(state: RouterState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/node/connect", get(node_connect))
+        .route("/status/subscribe", get(subscribe::status_subscribe))
         .merge(consumer)
         .merge(admin)
         .layer(

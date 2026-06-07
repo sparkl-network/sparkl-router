@@ -44,6 +44,8 @@ dependencies = [
  "alloy-rpc-client",
  "alloy-rpc-types",
  "alloy-serde",
+ "alloy-signer",
+ "alloy-signer-local",
  "alloy-transport",
  "alloy-transport-http",
  "alloy-trie",
@@ -477,6 +479,22 @@ dependencies = [
  "either",
  "elliptic-curve",
  "k256",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "alloy-signer-local"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48366d2c42b8d95ef951101bafa28486590f21b7a1e68b6b2d069746557bbe3"
+dependencies = [
+ "alloy-consensus",
+ "alloy-network",
+ "alloy-primitives",
+ "alloy-signer",
+ "async-trait",
+ "k256",
+ "rand 0.8.6",
  "thiserror 2.0.18",
 ]
 
@@ -4205,6 +4223,7 @@ dependencies = [
  "async-stream",
  "axum",
  "axum-extra",
+ "base64 0.22.1",
  "bs58",
  "bytes",
  "chrono",
@@ -4214,6 +4233,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
+ "hmac",
  "http",
  "metrics",
  "metrics-exporter-prometheus",
@@ -4223,6 +4243,8 @@ dependencies = [
  "secp256k1 0.31.1",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",

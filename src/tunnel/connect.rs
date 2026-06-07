@@ -22,7 +22,6 @@ pub async fn node_connect(
 
 async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
     let config = state.config.clone();
-    let challenge_window = config.node_auth.challenge_window_blocks;
 
     let block = match state.chain.latest_block().await {
         Ok(b) => b,
@@ -53,7 +52,8 @@ async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
             node_id,
             signature,
             ed25519_pubkey,
-        }) => (node_id, signature, ed25519_pubkey),
+            moniker,
+        }) => (node_id, signature, ed25519_pubkey, moniker),
         _ => {
             warn!("expected auth frame");
             let _ = socket.close().await;
@@ -61,8 +61,8 @@ async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
         }
     };
 
-    let (node_id_hex, signature, ed25519_pubkey) = auth;
-    let node_id = match parse_node_id_hex(&node_id_hex) {
+    let (node_id_str, signature, ed25519_pubkey, moniker) = auth;
+    let node_id = match parse_node_id_hex(&node_id_str) {
         Ok(id) => id,
         Err(e) => {
             warn!(%e, "invalid node_id in auth");
@@ -87,7 +87,6 @@ async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
         }
     };
 
-    let _ = challenge_window;
     let payload = connect_challenge_payload(&nonce, block);
     if let Err(e) = verify_connect_signature(&payload, &signature, &pubkey_bytes) {
         warn!(%e, "connect signature verification failed");
@@ -95,11 +94,20 @@ async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
         return;
     }
 
+    let moniker = match normalize_tunnel_moniker(moniker) {
+        Ok(m) => m,
+        Err(e) => {
+            warn!(%e, "invalid moniker in auth");
+            let _ = socket.close().await;
+            return;
+        }
+    };
+
     if config.chain.enabled {
         match state.chain.is_node_registered(&node_id).await {
             Ok(true) => {}
             Ok(false) => {
-                warn!(?node_id, "node not registered on-chain");
+                warn!(node_id = %node_id_str, "node not commercially registered on-chain");
                 let _ = socket.close().await;
                 return;
             }
@@ -121,6 +129,7 @@ async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
 
     let tunnel = Arc::new(NodeTunnel::new(
         node_id,
+        moniker,
         frame_tx,
         shutdown_tx,
     ));
@@ -135,8 +144,20 @@ async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
         return;
     }
 
-    info!(?node_id, "node tunnel ready");
+    info!(
+        node_id = %node_id_str,
+        moniker = tunnel.moniker.as_deref().unwrap_or(""),
+        "node tunnel ready"
+    );
     crate::metrics::inc_tunnel_connected();
+
+    state.telemetry.emit_node_status(
+        node_id,
+        tunnel.moniker.clone(),
+        "online",
+        tunnel.in_flight_count(),
+        tunnel.model_count.load(std::sync::atomic::Ordering::Relaxed),
+    );
 
     crate::consumer::models::spawn_tunnel_models_refresh(
         state.clone(),
@@ -154,6 +175,22 @@ async fn handle_node_connect(mut socket: WebSocket, state: RouterState) {
         config,
     )
     .await;
+}
+
+const MAX_MONIKER_LEN: usize = 128;
+
+fn normalize_tunnel_moniker(raw: Option<String>) -> anyhow::Result<Option<String>> {
+    let Some(s) = raw else {
+        return Ok(None);
+    };
+    let m = s.trim().to_string();
+    if m.is_empty() {
+        return Ok(None);
+    }
+    if m.len() > MAX_MONIKER_LEN {
+        anyhow::bail!("moniker exceeds {MAX_MONIKER_LEN} characters");
+    }
+    Ok(Some(m))
 }
 
 fn decode_pubkey(hex_pk: &str) -> anyhow::Result<[u8; 32]> {

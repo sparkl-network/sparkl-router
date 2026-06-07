@@ -1,6 +1,8 @@
 [server]
 bind = "127.0.0.1:3001"
 router_url = "http://127.0.0.1:3001"
+# Max wait for provider inference on /v1/chat/completions (streaming and non-streaming).
+upstream_timeout_secs = 120
 
 [chain]
 rpc_url = "https://paseo-rpc.dwellir.com"
@@ -11,7 +13,6 @@ session_cache_ttl_secs = 12
 enabled = true
 
 [node_auth]
-challenge_window_blocks = 10
 ping_interval_secs = 30
 pong_timeout_secs = 10
 
@@ -19,7 +20,28 @@ pong_timeout_secs = 10
 bind = "127.0.0.1:9091"
 
 [portal]
-admin_token = "change-me-in-production"
+# Must match sparkl-portal SPARKL_ROUTER_ADMIN_TOKEN (local default: dev-admin-token-change-me)
+admin_token = "dev-admin-token-change-me"
 stale_threshold_secs = 40
 # Re-fetch each node's /v1/models over the tunnel at most this often (on pong heartbeat).
 models_refresh_on_pong_secs = 60
+
+[capacity]
+# Max queued waiters as a fraction of per-model concurrency (1.0 = 100%).
+queue_depth_ratio = 1.0
+# Max seconds a chat completion waits in the capacity queue before HTTP 429.
+queue_wait_timeout_secs = 60
+
+[settlement]
+# Persisted under data_dir/record-usage-key.json when record_usage_private_key is empty.
+# data_dir = "data"
+enabled = false
+# Optional: override generated key. When empty, load or create record-usage-key.json.
+# record_usage_private_key = "0x..."
+# Register data/record-usage-key.json on-chain: ./scripts/set-record-usage-role.sh config.toml
+# Registry owner key: submits setRecordUsage(this router key) when on-chain role differs.
+# registry_owner_private_key = "0x..."
+record_usage_enabled = true
+record_usage_token_chunk = 10000
+record_usage_flush_interval_secs = 60
+enforce_session_budget = true
